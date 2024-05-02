@@ -164,6 +164,7 @@ class Game:  # Класс партии (одной игры)
 
     async def act(self):  # Вызывается ночью
         # print([[i, i.id] for i in self.get_alive()])
+        vote_events = {}
         for i in self.players:
             print(i)
             action = i.action()
@@ -175,6 +176,19 @@ class Game:  # Класс партии (одной игры)
                 print("Выбранного игрока не существует")  # Заменить
                 continue
             eff, time, source = action
+            if eff in vote_events.keys():
+                if target in vote_events[eff].keys():
+                    vote_events[eff][target]["votes"] += 1
+                    vote_events[eff][target]["source"].append(source)
+                else:
+                    vote_events[eff][target] = {"votes": 1, "time": time, "source": [source]}
+            else:
+                vote_events[eff] = {target: {"votes": 1, "time": time, "source": [source]}}
+        for eff, targets in vote_events.items():
+            target = [k for k, _ in sorted(targets.items(), key=lambda item: item[1]["votes"], reverse=True)][0]
+            vals = targets[target]
+            time = vals["time"]
+            source = vals["source"]
             target.apply(eff, time, source)
             if "EVENT" in eff:
                 a = eff[5:]
@@ -182,14 +196,14 @@ class Game:  # Класс партии (одной игры)
                     self.events[target] = [eff, source, False if target.role_name == "innocent" else True]
             else:
                 self.events[target] = [eff, source]
-        return
+
 
     async def morning(self):  # Вызывается утром
         for player, val in self.events.items():  # Цикл озвучивает произошедшее за ночь
-            print(val[0] + " happened to " + player.id + " by " + val[1].role_name, val[1].id)  # Заменить
+            print(val[0] + " happened to " + player.id + " by " + val[1][0].role_name)  # Заменить
             if len(val) > 2:  # Обрабатывает Особые события
                 if val[0] == "EVENTchecked_color":  # Все, что находится в этом условии заменить. Это от комиссара озвучивание цвета роли
-                    print(player.id + " was checked by " + val[1].role_name)
+                    print(player.id + " was checked by " + val[1][0].role_name)
                     await asyncio.sleep(2)
                     print("he is an innocent" if val[2] is False else "he is NOT an innocent")
         self.events = {}
@@ -220,6 +234,6 @@ class Game:  # Класс партии (одной игры)
             await self.game_loop()
 
 
-players = {"Max": "Mafia", "Roma": "Doctor", "Milorad": "Innocent", "Oleg": "Innocent", "Robert": "Commisar"}  # Список игроков для теста. В id для понятности использовал имена. Названия ролей должны соответствовать названиям классов
+players = {"Max": "Mafia", "Roma": "Doctor", "Milorad": "Mafia", "Oleg": "Innocent", "Robert": "Commisar"}  # Список игроков для теста. В id для понятности использовал имена. Названия ролей должны соответствовать названиям классов
 
 game = Game(players, ctx=None)
