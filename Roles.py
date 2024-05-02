@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import random
 from importlib import import_module
 
 self_m = import_module("Roles")
@@ -24,20 +25,85 @@ class AI:
     def __init__(self, char):
         self.char = char
         self.game = char.game
-        self.players = self.game.players
+        self.players = self.game.players.copy()
+        self.players.remove(self.char)
+        self.role = self.char.role_name
+        self.teammates = self.find_teammates()
+        if self.role == "Mafia":
+            self.next_kill = None
+            self.susp = []
+        else:
+            self.susp_bad = []
+            self.susp_good = []
+
+    def find_teammates(self):
+        lst = []
+        if self.role != "Innocent":
+            for i in self.players:
+                if i.role_name == self.role:
+                    lst.append(i)
+        return lst
+
+    def get_voted_by(self, pl):
+        if self.role == "Mafia":
+            self.susp.append(pl)
+            if random.randint(0, 2) == 1:
+                self.next_kill = pl
+        else:
+            self.susp_bad.append(pl)
+
+    def voted_along(self, pl):
+        if self.role == "Mafia":
+            if pl in self.susp:
+                self.susp.remove(pl)
+            if random.randint(0, 1) == 1:
+                self.next_kill = pl
+        else:
+            self.susp_good.append(pl)
+
+    def choose_act(self):
+        self.players = self.game.players.copy()
+        self.players.remove(self.char)
+        ateam = list(set(self.players) - set(self.teammates))
+        if self.role == "Mafia":
+            if self.next_kill and random.randint(0, 2) > 0:
+                return self.next_kill
+            else:
+                return random.choice(ateam + self.susp)
+        else:
+            if self.char.ability_harm:
+                return random.choice(ateam + self.susp_bad)
+            else:
+                return random.choice(ateam + self.susp_good)
+
+    def choose_vote(self):
+        self.players = self.game.players.copy()
+        self.players.remove(self.char)
+        ateam = list(set(self.players) - set(self.teammates))
+        if self.role == "Mafia":
+            return random.choice(ateam + self.susp)
+        else:
+            return random.choice(ateam + self.susp_bad + list(set(self.susp_bad) - set(self.susp_good)))
 
 
 class Innocent:  # Базовый класс мирного жителя. От него наследуются все остальные классы ролей
-    def __init__(self, id, game):
+    def __init__(self, id, game, ai=None):
         self.id = id  # Id игрока
         self.game = game  # Партия (класс), в которой участвует игрок
-        self.role_name = "innocent"  # название роли
+        self.role_name = "Innocent"  # название роли
 
         self.effect_list = {}  # Лист эффектов для реализации разный способностей ролей. Например, лечение доктора или блокировка голосования любовницы
         self.alive = True  # Жив ли игрок.
 
         self.teammate_keys = []  # Какие другие роли кроме этой являются союзниками (знают роли друг друга). Пока не используется
         self.team = "good"  # В команде мирных (good) или мафии (bad). Используется также в сложных ролях со своими интересами
+
+        self.ai = ai  # ИИ для игроков-ботов
+        self.ability_harm = False  # вредит ли способность (для ИИ)
+
+    def make_ai(self):
+        if self.ai:
+            self.ai = AI(self)
 
     def new_day(self):  # Вызывается в начале нового дня
         if "killed" in self.effect_list.keys():  # Проверяет себя на смерть
@@ -76,10 +142,11 @@ class Innocent:  # Базовый класс мирного жителя. От �
 
 
 class Mafia(Innocent):  # Класс мафии
-    def __init__(self, id, game):
-        super(Mafia, self).__init__(id, game)
-        self.role_name = "mafia"
+    def __init__(self, id, game, ai):
+        super(Mafia, self).__init__(id, game, ai)
+        self.role_name = "Mafia"
         self.team = "bad"  # Находится в команде мафии(bad)
+        self.ability_harm = True
 
     def action(self):
         if not self.alive:
@@ -90,9 +157,9 @@ class Mafia(Innocent):  # Класс мафии
 
 
 class Doctor(Innocent):  # Класс доктора
-    def __init__(self, id, game):
-        super(Doctor, self).__init__(id, game)
-        self.role_name = "doctor"
+    def __init__(self, id, game, ai):
+        super(Doctor, self).__init__(id, game, ai)
+        self.role_name = "Doctor"
 
     def action(self):
         if not self.alive:
@@ -103,9 +170,10 @@ class Doctor(Innocent):  # Класс доктора
 
 
 class Commisar(Innocent):  # Класс комиссара
-    def __init__(self, id, game):
-        super(Commisar, self).__init__(id, game)
-        self.role_name = "commisar"
+    def __init__(self, id, game, ai):
+        super(Commisar, self).__init__(id, game, ai)
+        self.role_name = "Commisar"
+        self.ability_harm = True
 
     def action(self):
         if not self.alive:
@@ -116,9 +184,10 @@ class Commisar(Innocent):  # Класс комиссара
 
 
 class Lover(Innocent):  # Класс любовницы
-    def __init__(self, id, game):
-        super(Lover, self).__init__(id, game)
-        self.role_name = "lover"
+    def __init__(self, id, game, ai):
+        super(Lover, self).__init__(id, game, ai)
+        self.role_name = "Lover"
+        self.ability_harm = True
 
     def action(self):
         if not self.alive:
@@ -129,18 +198,19 @@ class Lover(Innocent):  # Класс любовницы
 
 
 class Game:  # Класс партии (одной игры)
-    def __init__(self, players, ctx):
-        self.players = self.set_roles(players)  # Список игроков. В функцию должен поступать список id:название роли
+    def __init__(self, players, ctx, all_ai=False):
+        self.players = self.set_roles(players, all_ai)  # Список игроков. В функцию должен поступать список id:название роли
+        [pl.make_ai() for pl in self.players]
         self.ctx = ctx  # Ctx для бота
         self.events = {}  # События, произошедшие за ночь
         asyncio.run(self.game_loop())  # Запускает игровой цикл
 
-    def set_roles(self, lst):  # Создает из словаря список классов игроков
+    def set_roles(self, lst, all_ai):  # Создает из словаря список классов игроков
         result = []
         for key, val in lst.items():
             pl = getattr(self_m, val)
             # exec("pl = " + val + "('" + key + "', self)")
-            result.append(pl(key, self))
+            result.append(pl(key, self, True if all_ai else False))
         return result
 
     def count_team(self, team):  # Считает кол-во человек из одной команды
@@ -168,16 +238,29 @@ class Game:  # Класс партии (одной игры)
         votes = {}  # Голоса. Класс игрока:Кол-во голосов. Класс по id можно найти через find_by_id(id)
         for i in self.players:  # Цикл определяет количество голосов на разных игроков. Нужно полностью заменить
             if i.vote():
-                v = input("Игрок " + i.id + " голосует за: ")
-                target = self.find_by_id(v)
+                await asyncio.sleep(0.8)
+                if i.ai:
+                    target = i.ai.choose_vote()
+                    print("Игрок", i.id, "голосует за:", target.id)
+                else:
+                    v = input("Игрок " + i.id + " голосует за: ")
+                    target = self.find_by_id(v)
+                if target.ai:
+                    target.ai.get_voted_by(i)
                 if not target:
                     print("Выбранного игрока не существует")
                     continue
                 if target in votes:
-                    votes[target] += 1
+                    votes[target] += [i]
                 else:
-                    votes[target] = 1
-        votes = {k: v for k, v in sorted(votes.items(), key=lambda item: item[1], reverse=True)}  # Сортирует словарь с голосами
+                    votes[target] = [i]
+        for _, i in votes.items():
+            for j in i:
+                if j.ai:
+                    n = i.copy()
+                    n.remove(j)
+                    [j.ai.voted_along(x) for x in n]
+        votes = {k: len(v) for k, v in sorted(votes.items(), key=lambda item: len(item[1]), reverse=True)}  # Сортирует словарь с голосами
         outsider = list(votes.keys())[0]  # Класс того, кого выгоняют
         print("Игрок " + outsider.id + " был выгнан с общим счетом в " + str(votes[outsider]) + " голосов")  # Отображение, кого выгоняют. Эту строчку заменить
         outsider.alive = False
@@ -189,11 +272,17 @@ class Game:  # Класс партии (одной игры)
         vote_events = {}
         for i in self.players:
             print(i)
+            await asyncio.sleep(0.8)
             action = i.action()
             if not action:
                 continue
-            target = input("Игрок " + i.id + " выбрает: ")  # Получает id выбранного игрока. Заменить. Класс проснувшегося игрока лежит в i
-            target = self.find_by_id(target)
+            target = None
+            if i.ai:
+                target = i.ai.choose_act()
+                print("Игрок", i.id, "выбирает:", target.id)
+            else:
+                target = input("Игрок " + i.id + " выбрает: ")  # Получает id выбранного игрока. Заменить. Класс проснувшегося игрока лежит в i
+                target = self.find_by_id(target)
             if not target:
                 print("Выбранного игрока не существует")  # Заменить
                 continue
@@ -231,7 +320,7 @@ class Game:  # Класс партии (одной игры)
         self.events = {}
         for player in self.players:
             player.new_day()
-        # print([[i, i.id] for i in self.get_alive()])
+        self.players = self.get_alive()
         return
 
     async def gameover(self, team):  # Вызывается при окончании игры. team - какая команда победила (good/bad). Полностью заменить
@@ -256,6 +345,6 @@ class Game:  # Класс партии (одной игры)
             await self.game_loop()
 
 
-players = {"Max": "Mafia", "Roma": "Doctor", "Milorad": "Mafia", "Oleg": "Innocent", "Robert": "Commisar"}  # Список игроков для теста. В id для понятности использовал имена. Названия ролей должны соответствовать названиям классов
+players = {"Max": "Mafia", "Roma": "Doctor", "Milorad": "Mafia", "Oleg": "Innocent", "Robert": "Commisar", "Alex": "Innocent", "Anton": "Innocent", "SandaL": "Innocent"}  # Список игроков для теста. В id для понятности использовал имена. Названия ролей должны соответствовать названиям классов
 
-game = Game(players, ctx=None)
+game = Game(players, ctx=None, all_ai=True)
