@@ -5,6 +5,28 @@ from importlib import import_module
 self_m = import_module("Roles")
 
 
+def make_role_list(num):
+    lst = ["Mafia"]
+    if num > 7:
+        lst += ["Lover"] * (num // 7)
+    if num > 4:
+        lst += ["Commisar"]
+    if num > 5:
+        lst += ["Doctor"]
+        if num >= 12:
+            lst += ["Doctor"] * (num // 12)
+    lst += ["Mafia"] * (num // 7)
+    lst += ["Innocent"] * (num - len(lst))
+    return lst
+
+
+class AI:
+    def __init__(self, char):
+        self.char = char
+        self.game = char.game
+        self.players = self.game.players
+
+
 class Innocent:  # Базовый класс мирного жителя. От него наследуются все остальные классы ролей
     def __init__(self, id, game):
         self.id = id  # Id игрока
