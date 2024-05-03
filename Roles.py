@@ -42,6 +42,7 @@ class AI:
             for i in self.players:
                 if i.role_name == self.role:
                     lst.append(i)
+        print(self.char, lst)
         return lst
 
     def get_voted_by(self, pl):
@@ -125,6 +126,8 @@ class Innocent:  # Базовый класс мирного жителя. От �
 
     def apply(self, eff, time, source):  # Наложение эффекта
         self.effect_list[eff] = [time, source]
+        if eff == "voted_out":
+            self.kill()
 
     def vote(self):  # Проверка может ли голосовать
         if not self.alive:
@@ -269,6 +272,7 @@ class Game:  # Класс партии (одной игры)
 
     async def act(self):  # Вызывается ночью
         # print([[i, i.id] for i in self.get_alive()])
+        self.players = self.get_alive()
         vote_events = {}
         for i in self.players:
             print(i)
@@ -321,6 +325,7 @@ class Game:  # Класс партии (одной игры)
         for player in self.players:
             player.new_day()
         self.players = self.get_alive()
+        print(self.players)
         return
 
     async def gameover(self, team):  # Вызывается при окончании игры. team - какая команда победила (good/bad). Полностью заменить
@@ -330,7 +335,7 @@ class Game:  # Класс партии (одной игры)
             print("Игра окончена. Мирные жители победили!")
 
     async def game_loop(self):  # Игровой цикл. Повторяет сам себя, пока не убъют всех мафий или пока жителей не станет меньше или равно, чем мафий
-        print("start_loop")
+        print("start_loop--------------------------------------------")
         await asyncio.sleep(3)
         await self.act()
         await asyncio.sleep(3)
