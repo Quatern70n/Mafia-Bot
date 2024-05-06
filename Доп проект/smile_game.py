@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 import asyncio
 import random
-from data import db_session
 
 TOKEN = "Token"
 
